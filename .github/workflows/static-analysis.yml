@@ -58,7 +58,7 @@ jobs:
         run: |
           set -e
           # cups-proxyd C files (with CUPS, Avahi, GLib)
-          CF="-DVERSION='\"1.0\"' $(cups-config --cflags) $(pkg-config --cflags glib-2.0 avahi-client avahi-glib gio-unix-2.0)"
+          CF="-DVERSION=\"1.0\" $(cups-config --cflags) $(pkg-config --cflags glib-2.0 avahi-client avahi-glib gio-unix-2.0)"
           cd cups-proxyd
           gcc -c $CF -o cups-proxyd.o cups-proxyd.c
           gcc -c $CF -o proxy.o proxy.c

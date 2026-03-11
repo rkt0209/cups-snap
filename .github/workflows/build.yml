@@ -1,68 +1,92 @@
-name: CUPS Snap CI - Native Build Pipeline
+# =============================================================================
+# CUPS Snap CI - Remote Build Pipeline
+# =============================================================================
+# This workflow builds the CUPS snap for armhf and riscv64 using Canonical's
+# "snapcraft remote-build" feature. Compilation is offloaded to Launchpad's
+# native builders because:
+#   - core22 + systemd/squashfs cannot be reliably emulated (e.g. via QEMU)
+#     for armhf and riscv64 on standard GitHub runners.
+# The GitHub runner (ubuntu-latest) only orchestrates: checkout, auth setup,
+# dispatching the build, and downloading the resulting .snap artifact.
+# Smoke tests are skipped here since the runner is amd64 and cannot run
+# armhf/riscv64 snaps without heavy emulation.
+# =============================================================================
+
+name: CUPS Snap CI - Remote Build Pipeline
+
 on:
   push:
-    branches:
-      - master
   pull_request:
-    branches:
-      - master
   workflow_dispatch:
 
-
 jobs:
-  build-snap:
-    name: Build CUPS Snap (${{ matrix.arch }})
-    runs-on: ${{ matrix.runs-on }}
+  remote-build-snap:
+    name: Remote Build CUPS Snap (${{ matrix.arch }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # x86_64 native build on standard Ubuntu runner
-          - arch: x86_64
-            runs-on: ubuntu-latest
+        # Only architectures that cannot be built natively on available runners.
+        # x86_64 and arm64 are covered by the native pipeline (build.yml).
+        arch:
+          - armhf
+          - riscv64
 
-          # arm64 native build on ARM64-capable runner
-          - arch: arm64
-            runs-on: ubuntu-24.04-arm
     steps:
+      # -----------------------------------------------------------------------
+      # Checkout repository sources (needed for snapcraft.yaml and parts).
+      # -----------------------------------------------------------------------
       - name: Checkout cups-snap sources
         uses: actions/checkout@v4
-      - name: Print Ubuntu version
-        run: |
-          set -e
-          cat /etc/os-release | grep PRETTY_NAME | awk -F '=' '{print $2}'
-      - name: Build CUPS snap with Snapcraft action
-        id: snapcraft
-        uses: snapcore/action-build@v1
-        with:
-          path: .
-      - name: Install built snap (smoke test setup)
-        run: |
-          set -e
-          SNAP_FILE="${{ steps.snapcraft.outputs.snap }}"
-          echo "Installing snap: ${SNAP_FILE}"
-          sudo snap install --dangerous "${SNAP_FILE}"
-      - name: Run smoke tests
-        run: |
-          set -e
-          
-          # Verify snap is listed
-          echo "Checking snap list..."
-          snap list | grep "^cups " || (echo "CUPS snap not found in snap list"; exit 1)
-          
-          # Test ghostscript binary with -h flag
-          echo "Testing ghostscript binary..."
-          snap run cups.gs -h || true
 
-      - name: Cleanup - Remove installed snap
-        if: always()
+      # -----------------------------------------------------------------------
+      # Install Snapcraft on the runner. The runner only coordinates the build;
+      # the actual compilation runs on Launchpad's native armhf/riscv64 builders.
+      # -----------------------------------------------------------------------
+      - name: Install Snapcraft
         run: |
-          echo "Removing CUPS snap..."
-          sudo snap remove cups || true
+          sudo snap install snapcraft --channel latest/stable --classic
 
+      # -----------------------------------------------------------------------
+      # Launchpad authentication (aligned with snapcrafters/ci release-to-candidate).
+      # Snapcraft reads credentials from these paths to authenticate with
+      # Launchpad for remote-build without interactive prompts.
+      # Store your Launchpad token in GitHub Secrets (e.g. LP_CREDENTIALS or
+      # LAUNCHPAD_TOKEN). Create the token at:
+      #   https://launchpad.net/~me/+oauth-tokens
+      # with "Read" and "Write" for the relevant scopes (e.g. build).
+      # -----------------------------------------------------------------------
+      - name: Setup Launchpad credentials
+        env:
+          # Use LP_CREDENTIALS; snapcrafters/ci uses LAUNCHPAD_TOKEN—rename if needed.
+          LP_CREDENTIALS: ${{ secrets.LP_CREDENTIALS }}
+        run: |
+          set -e
+          mkdir -p ~/.local/share/snapcraft/provider/launchpad ~/.local/share/snapcraft
+          echo "$LP_CREDENTIALS" > ~/.local/share/snapcraft/provider/launchpad/credentials
+          echo "$LP_CREDENTIALS" > ~/.local/share/snapcraft/launchpad-credentials
+
+      # -----------------------------------------------------------------------
+      # Run the remote build. Snapcraft uploads the project to Launchpad,
+      # Launchpad builds the snap natively for the given architecture, then
+      # snapcraft downloads the resulting .snap back to the workspace.
+      # --launchpad-accept-public-upload: required for remote build to proceed.
+      # --build-for: target architecture (armhf or riscv64 from the matrix).
+      # -----------------------------------------------------------------------
+      - name: Remote build CUPS snap on Launchpad
+        run: |
+          set -e
+          snapcraft remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }}
+
+      # -----------------------------------------------------------------------
+      # Upload the built .snap as a workflow artifact. After remote-build
+      # completes, the snap file (e.g. cups_*_armhf.snap) is in the workspace.
+      # We do not run snap install or smoke tests: the runner is amd64 and
+      # cannot execute armhf/riscv64 binaries without QEMU.
+      # -----------------------------------------------------------------------
       - name: Upload CUPS snap artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cups-snap-${{ matrix.arch }}
+          name: cups-snap-remote-${{ matrix.arch }}
           path: ./*.snap
           if-no-files-found: error

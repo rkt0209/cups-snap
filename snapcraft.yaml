@@ -345,6 +345,10 @@ parts:
       - --with-cups-serverroot=/var/snap/cups/common/etc/cups
       - --with-cups-datadir=/snap/cups/current/share/cups
     build-environment:
+      # ADDED: Force C99 standard to allow declaration-after-statement in Brotli
+      # This fixes: "ISO C90 forbids mixed declarations and code [-Werror=declaration-after-statement]"
+      - CFLAGS: "-std=gnu99 -Wno-error=declaration-after-statement"
+      - CXXFLAGS: "-std=gnu++99"
       # To find the libraries built in this Snap
       - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$CRAFT_STAGE/usr/lib:$CRAFT_STAGE/usr/lib/${CRAFT_ARCH_TRIPLET_BUILD_FOR}:$CRAFT_STAGE/lib"
     stage-packages:

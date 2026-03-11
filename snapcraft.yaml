@@ -604,7 +604,7 @@ parts:
     source: scripts/
     override-build: |
       set -eux
-      gcc -o port-occupied port-occupied.c
+      "${CRAFT_ARCH_TRIPLET_BUILD_FOR}-gcc" -o port-occupied port-occupied.c
       craftctl default
     organize:
       run-cupsd: scripts/run-cupsd

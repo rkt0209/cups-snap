@@ -1,7 +1,7 @@
 # =============================================================================
 # CUPS Snap CI - Remote Build Pipeline
 # =============================================================================
-# This workflow builds the CUPS snap for armhf and riscv64 using Canonical's
+# This workflow builds the CUPS snap for armhf using Canonical's
 # "snapcraft remote-build" feature. Compilation is offloaded to Launchpad's
 # native builders because core22/systemd/squashfs limitations make local
 # emulation (e.g. via QEMU) unreliable on standard GitHub runners.
@@ -10,7 +10,7 @@
 # dispatching the build, and downloading the resulting .snap artifact.
 #
 # Smoke tests are intentionally skipped: the runner is amd64, while the produced
-# snap is armhf/riscv64, and we don't want to introduce QEMU emulation here.
+# snap is armhf, and we don't want to introduce QEMU emulation here.
 # =============================================================================
 
 name: CUPS Snap CI - Remote Build Pipeline
@@ -29,7 +29,6 @@ jobs:
       matrix:
         arch:
           - armhf
-          - riscv64
 
     steps:
       # -----------------------------------------------------------------------
@@ -74,7 +73,9 @@ jobs:
       - name: Remote build CUPS snap on Launchpad
         run: |
           set -e
-          snapcraft remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }}
+          snapcraft remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }} --debug
+          echo "--- Post-build Workspace Check ---"
+          ls -lh *.snap || echo "No snap file found!"
 
       # -----------------------------------------------------------------------
       # Upload the resulting .snap (downloaded by snapcraft remote-build).
@@ -82,6 +83,6 @@ jobs:
       - name: Upload CUPS snap artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cups-snap-remote-${{ matrix.arch }}
+          name: cups-snap-remote-armhf
           path: ./*.snap
           if-no-files-found: error

@@ -11,12 +11,15 @@ adopt-info: cups
 # `cups` interface in snapd
 assumes: [snapd2.55]
 
-# Only build on the architectures supported
+# Architectures
+# -------------
+# Focus on armhf remote-build. Keep an amd64 native build entry for quick local
+# validation, and an amd64->armhf mapping for Launchpad Remote Build.
 architectures:
   - build-on: amd64
-  - build-on: arm64
-  - build-on: armhf
-  - build-on: riscv64
+    build-for: amd64
+  - build-on: amd64
+    build-for: armhf
 
 # System user for filters and backends to drop privileges, "lp" is not
 # available in a Snap
@@ -594,7 +597,7 @@ parts:
     source: scripts/
     override-build: |
       set -eux
-      gcc -o port-occupied port-occupied.c
+      "${CRAFT_ARCH_TRIPLET_BUILD_FOR}-gcc" -o port-occupied port-occupied.c
       craftctl default
     organize:
       run-cupsd: scripts/run-cupsd
@@ -608,7 +611,9 @@ parts:
     prime:
       - scripts/
     build-packages:
-      - gcc
+      # Cross toolchain + target libc headers for armhf builds
+      - gcc-arm-linux-gnueabihf
+      - libc6-dev-armhf-cross
     after: [cups, cups-filters]
 
   cups-proxyd:

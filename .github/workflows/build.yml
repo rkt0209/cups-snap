@@ -3,13 +3,14 @@
 # =============================================================================
 # This workflow builds the CUPS snap for armhf and riscv64 using Canonical's
 # "snapcraft remote-build" feature. Compilation is offloaded to Launchpad's
-# native builders because:
-#   - core22 + systemd/squashfs cannot be reliably emulated (e.g. via QEMU)
-#     for armhf and riscv64 on standard GitHub runners.
-# The GitHub runner (ubuntu-latest) only orchestrates: checkout, auth setup,
+# native builders because core22/systemd/squashfs limitations make local
+# emulation (e.g. via QEMU) unreliable on standard GitHub runners.
+#
+# The GitHub runner (ubuntu-latest) only orchestrates: checkout, Launchpad auth,
 # dispatching the build, and downloading the resulting .snap artifact.
-# Smoke tests are skipped here since the runner is amd64 and cannot run
-# armhf/riscv64 snaps without heavy emulation.
+#
+# Smoke tests are intentionally skipped: the runner is amd64, while the produced
+# snap is armhf/riscv64, and we don't want to introduce QEMU emulation here.
 # =============================================================================
 
 name: CUPS Snap CI - Remote Build Pipeline
@@ -26,22 +27,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Only architectures that cannot be built natively on available runners.
-        # x86_64 and arm64 are covered by the native pipeline (build.yml).
         arch:
           - armhf
           - riscv64
 
     steps:
       # -----------------------------------------------------------------------
-      # Checkout repository sources (needed for snapcraft.yaml and parts).
+      # IMPORTANT: snapcraft remote-build requires a non-shallow git repository.
+      # Recommended resolution: perform a full clone (fetch-depth: 0).
       # -----------------------------------------------------------------------
       - name: Checkout cups-snap sources
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # -----------------------------------------------------------------------
       # Install Snapcraft on the runner. The runner only coordinates the build;
-      # the actual compilation runs on Launchpad's native armhf/riscv64 builders.
+      # the actual compilation runs on Launchpad's native builders.
       # -----------------------------------------------------------------------
       - name: Install Snapcraft
         run: |
@@ -51,25 +53,21 @@ jobs:
       # Launchpad authentication (aligned with snapcrafters/ci release-to-candidate).
       # Snapcraft reads credentials from these paths to authenticate with
       # Launchpad for remote-build without interactive prompts.
-      # Store your Launchpad token in GitHub Secrets (e.g. LP_CREDENTIALS or
-      # LAUNCHPAD_TOKEN). Create the token at:
-      #   https://launchpad.net/~me/+oauth-tokens
-      # with "Read" and "Write" for the relevant scopes (e.g. build).
       # -----------------------------------------------------------------------
       - name: Setup Launchpad credentials
         env:
-          # Use LP_CREDENTIALS; snapcrafters/ci uses LAUNCHPAD_TOKEN—rename if needed.
           LP_CREDENTIALS: ${{ secrets.LP_CREDENTIALS }}
         run: |
           set -e
+          # For versions of snapcraft after 8.2.0, the path is different
           mkdir -p ~/.local/share/snapcraft/provider/launchpad ~/.local/share/snapcraft
           echo "$LP_CREDENTIALS" > ~/.local/share/snapcraft/provider/launchpad/credentials
           echo "$LP_CREDENTIALS" > ~/.local/share/snapcraft/launchpad-credentials
 
       # -----------------------------------------------------------------------
-      # Run the remote build. Snapcraft uploads the project to Launchpad,
-      # Launchpad builds the snap natively for the given architecture, then
-      # snapcraft downloads the resulting .snap back to the workspace.
+      # Dispatch the remote build. Launchpad builds the snap natively for the
+      # given architecture, and snapcraft downloads the resulting .snap back to
+      # the workspace.
       # --launchpad-accept-public-upload: required for remote build to proceed.
       # --build-for: target architecture (armhf or riscv64 from the matrix).
       # -----------------------------------------------------------------------
@@ -79,10 +77,7 @@ jobs:
           snapcraft remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }}
 
       # -----------------------------------------------------------------------
-      # Upload the built .snap as a workflow artifact. After remote-build
-      # completes, the snap file (e.g. cups_*_armhf.snap) is in the workspace.
-      # We do not run snap install or smoke tests: the runner is amd64 and
-      # cannot execute armhf/riscv64 binaries without QEMU.
+      # Upload the resulting .snap (downloaded by snapcraft remote-build).
       # -----------------------------------------------------------------------
       - name: Upload CUPS snap artifact
         uses: actions/upload-artifact@v4

@@ -13,12 +13,15 @@ assumes: [snapd2.55]
 
 # Architectures
 # -------------
-# Focus on armhf remote-build. Keep an amd64 native build entry for quick local
-# validation, and an amd64->armhf mapping for Launchpad Remote Build.
+# Focus on armhf remote-build.
+# IMPORTANT: `snapcraft remote-build` does not allow creating multiple snaps
+# from the same `build-on` architecture. Therefore, armhf is built natively on
+# Launchpad's armhf builders (build-on: armhf, build-for: armhf), and amd64 is a
+# separate native entry.
 architectures:
   - build-on: amd64
     build-for: amd64
-  - build-on: amd64
+  - build-on: armhf
     build-for: armhf
 
 # System user for filters and backends to drop privileges, "lp" is not
@@ -597,7 +600,7 @@ parts:
     source: scripts/
     override-build: |
       set -eux
-      "${CRAFT_ARCH_TRIPLET_BUILD_FOR}-gcc" -o port-occupied port-occupied.c
+      gcc -o port-occupied port-occupied.c
       craftctl default
     organize:
       run-cupsd: scripts/run-cupsd
@@ -611,9 +614,7 @@ parts:
     prime:
       - scripts/
     build-packages:
-      # Cross toolchain + target libc headers for armhf builds
-      - gcc-arm-linux-gnueabihf
-      - libc6-dev-armhf-cross
+      - gcc
     after: [cups, cups-filters]
 
   cups-proxyd:

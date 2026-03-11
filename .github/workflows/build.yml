@@ -1,18 +1,3 @@
-# =============================================================================
-# CUPS Snap CI - Remote Build Pipeline
-# =============================================================================
-# This workflow builds the CUPS snap for armhf using Canonical's
-# "snapcraft remote-build" feature. Compilation is offloaded to Launchpad's
-# native builders because core22/systemd/squashfs limitations make local
-# emulation (e.g. via QEMU) unreliable on standard GitHub runners.
-#
-# The GitHub runner (ubuntu-latest) only orchestrates: checkout, Launchpad auth,
-# dispatching the build, and downloading the resulting .snap artifact.
-#
-# Smoke tests are intentionally skipped: the runner is amd64, while the produced
-# snap is armhf, and we don't want to introduce QEMU emulation here.
-# =============================================================================
-
 name: CUPS Snap CI - Remote Build Pipeline
 
 on:
@@ -31,58 +16,32 @@ jobs:
           - armhf
 
     steps:
-      # -----------------------------------------------------------------------
-      # IMPORTANT: snapcraft remote-build requires a non-shallow git repository.
-      # Recommended resolution: perform a full clone (fetch-depth: 0).
-      # -----------------------------------------------------------------------
       - name: Checkout cups-snap sources
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # -----------------------------------------------------------------------
-      # Install Snapcraft on the runner. The runner only coordinates the build;
-      # the actual compilation runs on Launchpad's native builders.
-      # -----------------------------------------------------------------------
       - name: Install Snapcraft
         run: |
           sudo snap install snapcraft --channel latest/stable --classic
 
-      # -----------------------------------------------------------------------
-      # Launchpad authentication (aligned with snapcrafters/ci release-to-candidate).
-      # Snapcraft reads credentials from these paths to authenticate with
-      # Launchpad for remote-build without interactive prompts.
-      # -----------------------------------------------------------------------
       - name: Setup Launchpad credentials
         env:
           LP_CREDENTIALS: ${{ secrets.LP_CREDENTIALS }}
         run: |
           set -e
-          # For versions of snapcraft after 8.2.0, the path is different
           mkdir -p ~/.local/share/snapcraft/provider/launchpad ~/.local/share/snapcraft
           echo "$LP_CREDENTIALS" > ~/.local/share/snapcraft/provider/launchpad/credentials
           echo "$LP_CREDENTIALS" > ~/.local/share/snapcraft/launchpad-credentials
 
-      # -----------------------------------------------------------------------
-      # Dispatch the remote build. Launchpad builds the snap natively for the
-      # given architecture, and snapcraft downloads the resulting .snap back to
-      # the workspace.
-      # --launchpad-accept-public-upload: required for remote build to proceed.
-      # --build-for: target architecture (armhf or riscv64 from the matrix).
-      # -----------------------------------------------------------------------
       - name: Remote build CUPS snap on Launchpad
         run: |
           set -e
-          snapcraft --debug remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }}
-          echo "--- Post-build Workspace Check ---"
-          ls -lh *.snap || echo "No snap file found!"
+          snapcraft remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }}
 
-      # -----------------------------------------------------------------------
-      # Upload the resulting .snap (downloaded by snapcraft remote-build).
-      # -----------------------------------------------------------------------
       - name: Upload CUPS snap artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cups-snap-remote-armhf
+          name: cups-snap-remote-${{ matrix.arch }}
           path: ./*.snap
           if-no-files-found: error

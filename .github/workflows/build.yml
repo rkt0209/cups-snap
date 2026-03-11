@@ -73,7 +73,7 @@ jobs:
       - name: Remote build CUPS snap on Launchpad
         run: |
           set -e
-          snapcraft remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }} --debug
+          snapcraft --debug remote-build --launchpad-accept-public-upload --build-for=${{ matrix.arch }}
           echo "--- Post-build Workspace Check ---"
           ls -lh *.snap || echo "No snap file found!"
 

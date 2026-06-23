@@ -1,0 +1,65 @@
+name: Edge Snap Tester (emulated arches)
+
+# armhf and riscv64 have no native GitHub runners, and a whole-stack snap cannot
+# be built under QEMU in reasonable time (nor run snapd under emulation).  So
+# rather than building them here (Launchpad is slow/queue-bound), we validate the
+# builds the Snap Store produces natively: download each architecture's snap from
+# the edge channel and verify its bundled binaries are the right architecture
+# (tests/smoke-unpacked.sh).  Runs on a daily schedule and on demand.
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # daily at 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  test-edge:
+    name: Edge smoke (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: armhf
+            qemu: qemu-arm-static
+          - arch: riscv64
+            qemu: qemu-riscv64-static
+    steps:
+      - name: Checkout cups-snap sources
+        uses: actions/checkout@v4
+
+      - name: Query the Snap Store for the ${{ matrix.arch }} edge build
+        id: snap-info
+        run: |
+          set -e
+          INFO=$(curl -s -H 'Snap-Device-Series: 16' https://api.snapcraft.io/v2/snaps/info/cups)
+          VERSION=$(echo "$INFO" | jq -r --arg A "${{ matrix.arch }}" \
+            '.["channel-map"][] | select(.channel.architecture==$A and .channel.name=="edge") | .version' | head -1)
+          URL=$(echo "$INFO" | jq -r --arg A "${{ matrix.arch }}" \
+            '.["channel-map"][] | select(.channel.architecture==$A and .channel.name=="edge") | .download.url' | head -1)
+          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+            echo "::warning::No ${{ matrix.arch }} build in the edge channel yet."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0   # exit clean: nothing to test yet, try again tomorrow
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Found ${{ matrix.arch }} edge version $VERSION"
+
+      - name: Download the ${{ matrix.arch }} snap
+        if: steps.snap-info.outputs.available == 'true'
+        run: curl -L "${{ steps.snap-info.outputs.url }}" -o "cups_${{ matrix.arch }}.snap"
+
+      - name: Install QEMU and unpack tools
+        if: steps.snap-info.outputs.available == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static squashfs-tools
+
+      - name: Unpack and smoke test (${{ matrix.arch }}, emulated)
+        if: steps.snap-info.outputs.available == 'true'
+        run: |
+          set -e
+          sh tests/smoke-unpacked.sh "cups_${{ matrix.arch }}.snap" "${{ matrix.qemu }}"
+          echo "::notice::${{ matrix.arch }} edge snap (v${{ steps.snap-info.outputs.version }}) smoke tested."

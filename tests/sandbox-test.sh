@@ -160,9 +160,20 @@ verify_output() {
 make_raw_queue() {
 	lpadmin_cmd="$1"; lpstat_cmd="$2"
 	log "creating classic raw queue '$QUEUE' ($PRINTER_URI) via $lpadmin_cmd"
-	$lpadmin_cmd -p "$QUEUE" -v "$PRINTER_URI" -E
-	$lpstat_cmd -p "$QUEUE" || true
-	$lpstat_cmd -v "$QUEUE" || true
+	# Retry: right after `snap restart` the snapped cupsd can briefly churn (its
+	# stop-command bug restarts the service), so lpadmin may transiently fail
+	# with "Unable to connect to server" even after lpstat -r succeeded once.
+	i=0
+	while [ "$i" -lt 30 ]; do
+		if $lpadmin_cmd -p "$QUEUE" -v "$PRINTER_URI" -E >/dev/null 2>&1; then
+			$lpstat_cmd -p "$QUEUE" || true
+			$lpstat_cmd -v "$QUEUE" || true
+			return 0
+		fi
+		i=$((i + 1)); sleep 1
+	done
+	log "could not create queue '$QUEUE' via $lpadmin_cmd"
+	return 1
 }
 
 # submit_and_verify <lp-cmd> <lpstat-cmd> -- print a stdin job and confirm it

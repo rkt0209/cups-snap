@@ -28,12 +28,14 @@ QEMU="${2:-}"   # used only to derive the expected arch + a best-effort run
 
 [ -f "$SNAP_FILE" ] || { echo "smoke: snap file not found: $SNAP_FILE" >&2; exit 1; }
 
-# Expected architecture token in file(1) output, derived from the qemu-user name.
+# Expected architecture as a file(1) regex, derived from the qemu-user name.
+# NB armhf must match "ELF 32-bit ... ARM" specifically -- a plain "ARM" token
+# would also match arm64 (file prints "... ARM aarch64 ...").
 case "$QEMU" in
-	*riscv64*)        ARCH_TOKEN="RISC-V" ;;
-	*aarch64*|*arm64*) ARCH_TOKEN="aarch64" ;;
-	*arm*)            ARCH_TOKEN="ARM" ;;
-	*)                ARCH_TOKEN="" ;;   # native / unknown: don't assert a token
+	*riscv64*)         ARCH_RE="RISC-V" ;;
+	*aarch64*|*arm64*) ARCH_RE="ELF 64-bit.*aarch64" ;;
+	*arm*)             ARCH_RE="ELF 32-bit.*ARM" ;;
+	*)                 ARCH_RE="" ;;   # native / unknown: don't assert an arch
 esac
 
 WORK="$(mktemp -d)"
@@ -78,15 +80,15 @@ check_bin() {
 		*x86-64*) echo "smoke: ERROR: '$name' is x86-64, expected a cross build" >&2; exit 1 ;;
 	esac
 
-	if [ -n "$ARCH_TOKEN" ]; then
-		case "$desc" in
-			*"$ARCH_TOKEN"*) : ;;
-			*) echo "smoke: ERROR: '$name' is not $ARCH_TOKEN as expected" >&2; exit 1 ;;
-		esac
+	if [ -n "$ARCH_RE" ]; then
+		echo "$desc" | grep -Eq "$ARCH_RE" || {
+			echo "smoke: ERROR: '$name' is not the expected arch (/$ARCH_RE/): $desc" >&2
+			exit 1
+		}
 	fi
 }
 
-echo "::group::architecture verification${ARCH_TOKEN:+ (expecting $ARCH_TOKEN)}"
+echo "::group::architecture verification${ARCH_RE:+ (expecting /$ARCH_RE/)}"
 check_bin gs        required    # bundled Ghostscript
 check_bin cupsd     required    # the CUPS scheduler
 check_bin cupsfilter optional   # a representative filter-chain entry point
@@ -104,4 +106,4 @@ if [ -n "$QEMU" ] && command -v "$QEMU" >/dev/null 2>&1; then
 	fi
 fi
 
-echo "smoke: verification passed for $SNAP_FILE${QEMU:+ ($ARCH_TOKEN)}"
+echo "smoke: verification passed for $SNAP_FILE${ARCH_RE:+ (/$ARCH_RE/)}"

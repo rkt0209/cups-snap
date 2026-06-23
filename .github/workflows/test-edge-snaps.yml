@@ -1,11 +1,11 @@
-name: Edge Snap Tester (emulated arches)
+name: Edge Snap Tester (riscv64)
 
-# armhf and riscv64 have no native GitHub runners, and a whole-stack snap cannot
-# be built under QEMU in reasonable time (nor run snapd under emulation).  So
-# rather than building them here (Launchpad is slow/queue-bound), we validate the
-# builds the Snap Store produces natively: download each architecture's snap from
-# the edge channel and verify its bundled binaries are the right architecture
+# riscv64 has no native GitHub runner and a whole-stack snap is impractical to
+# build under QEMU, so rather than building it here we validate the build the
+# Snap Store produces natively: download the riscv64 snap from the edge channel
+# and verify its bundled binaries are the right architecture
 # (tests/smoke-unpacked.sh).  Runs on a daily schedule and on demand.
+# (armhf is built natively on the arm64 runner instead -- see build.yml.)
 
 on:
   schedule:
@@ -20,8 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: armhf
-            qemu: qemu-arm-static
           - arch: riscv64
             qemu: qemu-riscv64-static
     steps:

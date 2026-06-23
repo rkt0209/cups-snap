@@ -91,7 +91,43 @@ jobs:
           echo "Removing CUPS snap..."
           sudo snap remove cups || true
 
-  # armhf and riscv64 are NOT built here: building a whole-stack snap under QEMU
-  # emulation is far slower than it is worth, and the Launchpad remote-build is
-  # slow/queue-bound.  Those architectures are instead validated from the Snap
-  # Store edge channel (built natively by the Store) in test-edge-snaps.yml.
+  # Job 3: Build the armhf snap *natively* -- no QEMU, no Launchpad.  The arm64
+  # runner's CPU executes 32-bit ARM (AArch32) directly and Ubuntu's arm64 kernel
+  # enables CONFIG_COMPAT, so an armhf (linux/arm/v7) container runs at native
+  # speed.  This avoids both the slow Launchpad remote-build and the qemu-user
+  # armhf failures seen when emulating on an amd64 host.  (riscv64 has no native
+  # GitHub runner and a whole-stack snap is impractical to emulate, so it stays
+  # on the Snap Store edge channel -- see test-edge-snaps.yml.)
+  build-armhf:
+    name: Build armhf (native on arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout cups-snap sources
+        uses: actions/checkout@v4
+
+      - name: Build the armhf snap in a core22 armhf container
+        run: |
+          set -e
+          # diddledani/snapcraft:core22 is the snapcraft build environment; the
+          # linux/arm/v7 variant runs natively on this arm64 host.
+          docker run --rm \
+            --platform linux/arm/v7 \
+            --privileged \
+            --volume "$PWD":/data --workdir /data \
+            diddledani/snapcraft:core22 \
+            snapcraft --destructive-mode --verbose
+
+      - name: Smoke test (armhf)
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static squashfs-tools file
+          SNAP_FILE="$(ls ./*.snap | head -1)"
+          sh tests/smoke-unpacked.sh "$SNAP_FILE" qemu-arm-static
+
+      - name: Upload CUPS snap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cups-snap-armhf
+          path: ./*.snap
+          if-no-files-found: error
